@@ -3,6 +3,7 @@ package execution
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"math/big"
 	"strings"
@@ -112,6 +113,7 @@ var EmptyBlockHash = errors.New("Block hash is empty 0x0000...")
 
 // NewPayload calls the engine_newPayloadVX method via JSON-RPC.
 func (s *Service) NewPayload(ctx context.Context, payload interfaces.ExecutionData) ([]byte, error) {
+	log.Warn("Calling NewPayload with block hash: ", hex.EncodeToString(payload.BlockHash()))
 	ctx, span := trace.StartSpan(ctx, "powchain.engine-api-client.NewPayload")
 	defer span.End()
 	start := time.Now()
@@ -165,6 +167,7 @@ func (s *Service) NewPayload(ctx context.Context, payload interfaces.ExecutionDa
 func (s *Service) ForkchoiceUpdated(
 	ctx context.Context, state *pb.ForkchoiceState, attrs payloadattribute.Attributer,
 ) (*pb.PayloadIDBytes, []byte, error) {
+	log.Warn("Calling ForkchoiceUpdated with block hash: ", hex.EncodeToString(state.HeadBlockHash))
 	ctx, span := trace.StartSpan(ctx, "powchain.engine-api-client.ForkchoiceUpdated")
 	defer span.End()
 	start := time.Now()
@@ -182,6 +185,7 @@ func (s *Service) ForkchoiceUpdated(
 	}
 	switch attrs.Version() {
 	case version.Bellatrix:
+		fmt.Println("ETHBFT: Calling ForkchoiceUpdated in Bellatrix")
 		a, err := attrs.PbV1()
 		if err != nil {
 			return nil, nil, err
@@ -191,6 +195,7 @@ func (s *Service) ForkchoiceUpdated(
 			return nil, nil, handleRPCError(err)
 		}
 	case version.Capella:
+		fmt.Println("ETHBFT: Calling ForkchoiceUpdated in Capella")
 		a, err := attrs.PbV2()
 		if err != nil {
 			return nil, nil, err
@@ -221,6 +226,7 @@ func (s *Service) ForkchoiceUpdated(
 
 // GetPayload calls the engine_getPayloadVX method via JSON-RPC.
 func (s *Service) GetPayload(ctx context.Context, payloadId [8]byte, slot primitives.Slot) (interfaces.ExecutionData, error) {
+	log.Warn("Calling GetPayload with payloadid: ", payloadId)
 	ctx, span := trace.StartSpan(ctx, "powchain.engine-api-client.GetPayload")
 	defer span.End()
 	start := time.Now()
@@ -408,6 +414,7 @@ func (s *Service) GetTerminalBlockHash(ctx context.Context, transitionTime uint6
 // LatestExecutionBlock fetches the latest execution engine block by calling
 // eth_blockByNumber via JSON-RPC.
 func (s *Service) LatestExecutionBlock(ctx context.Context) (*pb.ExecutionBlock, error) {
+	log.Warn("Calling LatestExecutionBlock")
 	ctx, span := trace.StartSpan(ctx, "powchain.engine-api-client.LatestExecutionBlock")
 	defer span.End()
 
@@ -425,6 +432,7 @@ func (s *Service) LatestExecutionBlock(ctx context.Context) (*pb.ExecutionBlock,
 // ExecutionBlockByHash fetches an execution engine block by hash by calling
 // eth_blockByHash via JSON-RPC.
 func (s *Service) ExecutionBlockByHash(ctx context.Context, hash common.Hash, withTxs bool) (*pb.ExecutionBlock, error) {
+	log.Warn("Calling ExecutionBlockByHash")
 	ctx, span := trace.StartSpan(ctx, "powchain.engine-api-client.ExecutionBlockByHash")
 	defer span.End()
 	result := &pb.ExecutionBlock{}
@@ -435,6 +443,7 @@ func (s *Service) ExecutionBlockByHash(ctx context.Context, hash common.Hash, wi
 // ExecutionBlocksByHashes fetches a batch of execution engine blocks by hash by calling
 // eth_blockByHash via JSON-RPC.
 func (s *Service) ExecutionBlocksByHashes(ctx context.Context, hashes []common.Hash, withTxs bool) ([]*pb.ExecutionBlock, error) {
+	log.Warn("Calling ExecutionBlocksByHashes")
 	_, span := trace.StartSpan(ctx, "powchain.engine-api-client.ExecutionBlocksByHashes")
 	defer span.End()
 	numOfHashes := len(hashes)

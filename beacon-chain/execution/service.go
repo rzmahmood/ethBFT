@@ -160,11 +160,13 @@ type Service struct {
 func NewService(ctx context.Context, opts ...Option) (*Service, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	_ = cancel // govet fix for lost cancel. Cancel is handled in service.Stop()
+	fmt.Println("REZ: Creating depositTrie")
 	depositTrie, err := trie.NewTrie(params.BeaconConfig().DepositContractTreeDepth)
 	if err != nil {
 		cancel()
 		return nil, errors.Wrap(err, "could not set up deposit trie")
 	}
+	fmt.Println("REZ: Creating EmptyGenesisState")
 	genState, err := transition.EmptyGenesisState()
 	if err != nil {
 		return nil, errors.Wrap(err, "could not set up genesis state")
@@ -200,16 +202,18 @@ func NewService(ctx context.Context, opts ...Option) (*Service, error) {
 			return nil, err
 		}
 	}
-
+	fmt.Println("REZ: ensureValidPowchainData")
 	if err := s.ensureValidPowchainData(ctx); err != nil {
 		return nil, errors.Wrap(err, "unable to validate powchain data")
 	}
 
+	fmt.Println("REZ: ExecutionChainData")
 	eth1Data, err := s.cfg.beaconDB.ExecutionChainData(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to retrieve eth1 data")
 	}
 
+	fmt.Println("REZ: initializeEth1Data")
 	if err := s.initializeEth1Data(ctx, eth1Data); err != nil {
 		return nil, err
 	}
@@ -796,11 +800,13 @@ func (s *Service) ensureValidPowchainData(ctx context.Context) error {
 	if genState == nil || genState.IsNil() {
 		return nil
 	}
+	fmt.Println("REZ: ensureValidPowchainData | ExecutionChainData")
 	eth1Data, err := s.cfg.beaconDB.ExecutionChainData(ctx)
 	if err != nil {
 		return errors.Wrap(err, "unable to retrieve eth1 data")
 	}
 	if eth1Data == nil || !eth1Data.ChainstartData.Chainstarted || !validateDepositContainers(eth1Data.DepositContainers) {
+		fmt.Println("REZ: ensureValidPowchainData | ProtobufBeaconStatePhase0")
 		pbState, err := native.ProtobufBeaconStatePhase0(s.preGenesisState.ToProtoUnsafe())
 		if err != nil {
 			return err
@@ -819,6 +825,7 @@ func (s *Service) ensureValidPowchainData(ctx context.Context) error {
 			Trie:              s.depositTrie.ToProto(),
 			DepositContainers: s.cfg.depositCache.AllDepositContainers(ctx),
 		}
+		fmt.Println("REZ: ensureValidPowchainData | SaveExecutionChainData")
 		return s.cfg.beaconDB.SaveExecutionChainData(ctx, eth1Data)
 	}
 	return nil

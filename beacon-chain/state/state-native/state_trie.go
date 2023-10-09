@@ -2,6 +2,7 @@ package state_native
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"sort"
 
@@ -381,6 +382,7 @@ func InitializeFromProtoUnsafeBellatrix(st *ethpb.BeaconStateBellatrix) (state.B
 // InitializeFromProtoUnsafeCapella directly uses the beacon state protobuf fields
 // and sets them as fields of the BeaconState type.
 func InitializeFromProtoUnsafeCapella(st *ethpb.BeaconStateCapella) (state.BeaconState, error) {
+	fmt.Println("ETHBFT: Initializing State from Unsafe Capella InitializeFromProtoUnsafeCapella")
 	if st == nil {
 		return nil, errors.New("received nil state")
 	}

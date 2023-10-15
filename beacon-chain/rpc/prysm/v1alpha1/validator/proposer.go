@@ -105,10 +105,12 @@ func (vs *Server) GetBeaconBlock(ctx context.Context, req *ethpb.BlockRequest) (
 	sBlk.SetProposerIndex(idx)
 
 	if features.Get().BuildBlockParallel {
+		fmt.Println("ETHBFT: Using BuildBlockParallel")
 		if err := vs.BuildBlockParallel(ctx, sBlk, head); err != nil {
 			return nil, errors.Wrap(err, "could not build block in parallel")
 		}
 	} else {
+		fmt.Println("ETHBFT: NOT Using BuildBlockParallel")
 		// Set eth1 data.
 		eth1Data, err := vs.eth1DataMajorityVote(ctx, head)
 		if err != nil {
@@ -142,6 +144,7 @@ func (vs *Server) GetBeaconBlock(ctx context.Context, req *ethpb.BlockRequest) (
 		// Get local and builder (if enabled) payloads. Set execution data. New in Bellatrix.
 		localPayload, err := vs.getLocalPayload(ctx, sBlk.Block(), head)
 		if err != nil {
+			fmt.Printf("ETHBFT: Could not get local payload: %s\n", err.Error())
 			return nil, status.Errorf(codes.Internal, "Could not get local payload: %v", err)
 		}
 		builderPayload, err := vs.getBuilderPayload(ctx, sBlk.Block().Slot(), sBlk.Block().ProposerIndex())
@@ -234,6 +237,7 @@ func (vs *Server) BuildBlockParallel(ctx context.Context, sBlk interfaces.Signed
 
 	localPayload, err := vs.getLocalPayload(ctx, sBlk.Block(), head)
 	if err != nil {
+		fmt.Printf("ETHBFT: Could not get local payload parallel: %s\n", err.Error())
 		return status.Errorf(codes.Internal, "Could not get local payload: %v", err)
 	}
 
@@ -248,6 +252,9 @@ func (vs *Server) BuildBlockParallel(ctx context.Context, sBlk interfaces.Signed
 	}
 
 	wg.Wait() // Wait until block is built via consensus and execution fields.
+	fmt.Printf("The parent hash is %s\n", hex.EncodeToString(localPayload.ParentHash()))
+	fmt.Printf("The hash is %s\n", hex.EncodeToString(localPayload.BlockHash()))
+
 
 	return nil
 }

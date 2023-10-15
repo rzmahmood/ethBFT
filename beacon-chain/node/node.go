@@ -508,6 +508,7 @@ func (b *BeaconNode) startStateGen(ctx context.Context, bfs *backfill.Status, fc
 	r := bytesutil.ToBytes32(cp.Root)
 	// Consider edge case where finalized root are zeros instead of genesis root hash.
 	if r == params.BeaconConfig().ZeroHash {
+		fmt.Println("ETHBFT: The root hash is ZeroHash in startStateGen")
 		genesisBlock, err := b.db.GenesisBlock(ctx)
 		if err != nil {
 			return err
@@ -524,7 +525,6 @@ func (b *BeaconNode) startStateGen(ctx context.Context, bfs *backfill.Status, fc
 	if err != nil {
 		return err
 	}
-
 	b.stateGen = sg
 	return nil
 }

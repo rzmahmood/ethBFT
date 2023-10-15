@@ -1,6 +1,8 @@
 package state_native
 
 import (
+	"encoding/hex"
+	"fmt"
 	"github.com/pkg/errors"
 	"github.com/prysmaticlabs/prysm/v4/beacon-chain/state/state-native/types"
 	consensusblocks "github.com/prysmaticlabs/prysm/v4/consensus-types/blocks"
@@ -12,6 +14,7 @@ import (
 
 // SetLatestExecutionPayloadHeader for the beacon state.
 func (b *BeaconState) SetLatestExecutionPayloadHeader(val interfaces.ExecutionData) error {
+	fmt.Printf("ETHBFT: Setting Latest Execution Payload Header to %s\n", hex.EncodeToString(val.BlockHash()))
 	b.lock.Lock()
 	defer b.lock.Unlock()
 

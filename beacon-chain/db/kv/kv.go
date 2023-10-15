@@ -135,6 +135,7 @@ var Buckets = [][]byte{
 // path specified, creates the kv-buckets based on the schema, and stores
 // an open connection db object as a property of the Store struct.
 func NewKVStore(ctx context.Context, dirPath string) (*Store, error) {
+	fmt.Printf("ETHBFT: Calling new KV Store with DirPath %s\n", dirPath)
 	hasDir, err := file.HasDir(dirPath)
 	if err != nil {
 		return nil, err

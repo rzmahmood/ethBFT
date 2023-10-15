@@ -2,6 +2,7 @@ package interop
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/pkg/errors"
@@ -62,6 +63,7 @@ func NewPreminedGenesis(ctx context.Context, t, nvals, pCreds uint64, version in
 	for _, o := range opts {
 		o(cfg)
 	}
+	fmt.Println("ETHBFT: Created a new premined genesis to bootstrap beaconstate")
 	return cfg.prepare(ctx)
 }
 
@@ -492,6 +494,7 @@ func (s *PremineGenesisConfig) setExecutionPayload(g state.BeaconState) error {
 	default:
 		return nil
 	}
+	fmt.Println("ETHBFT: Premining the state from genesis")
 	return g.SetLatestExecutionPayloadHeader(ed)
 }
 

@@ -2,6 +2,7 @@ package stategen
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/helpers"
@@ -56,6 +57,7 @@ func (s *State) StateByRoot(ctx context.Context, blockRoot [32]byte) (state.Beac
 
 	// Genesis case. If block root is zero hash, short circuit to use genesis state stored in DB.
 	if blockRoot == params.BeaconConfig().ZeroHash {
+		fmt.Println("ETHBFT: The root hash is ZeroHash in StateByRoot")
 		root, err := s.beaconDB.GenesisBlockRoot(ctx)
 		if err != nil {
 			return nil, errors.Wrap(err, "could not get genesis block root")
@@ -187,16 +189,19 @@ func (s *State) DeleteStateFromCaches(_ context.Context, blockRoot [32]byte) err
 
 // This loads a beacon state from either the cache or DB, then replays blocks up the slot of the requested block root.
 func (s *State) loadStateByRoot(ctx context.Context, blockRoot [32]byte) (state.BeaconState, error) {
+	fmt.Printf("ETHBFT: loadStateByRoot called for root %+v\n", blockRoot)
 	ctx, span := trace.StartSpan(ctx, "stateGen.loadStateByRoot")
 	defer span.End()
 
 	// First, it checks if the state exists in hot state cache.
+	fmt.Println("ETHBFT: checks if the state exists in hot state cache.")
 	cachedState := s.hotStateCache.get(blockRoot)
 	if cachedState != nil && !cachedState.IsNil() {
 		return cachedState, nil
 	}
 
 	// Second, it checks if the state exists in epoch boundary state cache.
+	fmt.Println("ETHBFT: checks if the state exists in epoch boundary state cache.")
 	cachedInfo, ok, err := s.epochBoundaryStateCache.getByBlockRoot(blockRoot)
 	if err != nil {
 		return nil, err
@@ -206,7 +211,9 @@ func (s *State) loadStateByRoot(ctx context.Context, blockRoot [32]byte) (state.
 	}
 
 	// Short circuit if the state is already in the DB.
+	fmt.Println("ETHBFT: Short circuit if the state is already in the DB.")
 	if s.beaconDB.HasState(ctx, blockRoot) {
+		fmt.Println("ETHBFT: DB has the state")
 		return s.beaconDB.State(ctx, blockRoot)
 	}
 
@@ -218,6 +225,7 @@ func (s *State) loadStateByRoot(ctx context.Context, blockRoot [32]byte) (state.
 
 	// Since the requested state is not in caches or DB, start replaying using the last
 	// available ancestor state which is retrieved using input block's root.
+	fmt.Println("ETHBFT: ancestor state which is retrieved using input block's root")
 	startState, err := s.latestAncestor(ctx, blockRoot)
 	if err != nil {
 		return nil, errors.Wrap(err, "could not get ancestor state")

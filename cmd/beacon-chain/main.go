@@ -286,8 +286,9 @@ func startNode(ctx *cli.Context) error {
 		}
 	}
 
-	beacon, err := node.New(ctx, opts...)
+	beacon, err := node.NewBFTNode(ctx, opts...)
 	if err != nil {
+		fmt.Println("Exiting with error: ", err.Error())
 		return err
 	}
 	beacon.Start()

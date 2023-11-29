@@ -3,6 +3,7 @@ package validator
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -44,10 +45,12 @@ var (
 // This returns the execution payload of a given slot. The function has full awareness of pre and post merge.
 // The payload is computed given the respected time of merge.
 func (vs *Server) getLocalPayload(ctx context.Context, blk interfaces.ReadOnlyBeaconBlock, st state.BeaconState) (interfaces.ExecutionData, error) {
+	fmt.Println("ETHBFT: getLocalPayload invoked")
 	ctx, span := trace.StartSpan(ctx, "ProposerServer.getLocalPayload")
 	defer span.End()
 
 	if blk.Version() < version.Bellatrix {
+		fmt.Printf("ETHBFT: Returning early as block version is %d\n", blk.Version())
 		return nil, nil
 	}
 
@@ -83,6 +86,7 @@ func (vs *Server) getLocalPayload(ctx context.Context, blk interfaces.ReadOnlyBe
 		payload, err := vs.ExecutionEngineCaller.GetPayload(ctx, pid, slot)
 		switch {
 		case err == nil:
+			fmt.Println("Payload id is cache hit, returning the payload from execution engine")
 			warnIfFeeRecipientDiffers(payload, feeRecipient)
 			return payload, nil
 		case errors.Is(err, context.DeadlineExceeded):
@@ -93,6 +97,7 @@ func (vs *Server) getLocalPayload(ctx context.Context, blk interfaces.ReadOnlyBe
 
 	var parentHash []byte
 	var hasTerminalBlock bool
+	fmt.Println("ETHBFT: Checking if merge transition is complete")
 	mergeComplete, err := blocks.IsMergeTransitionComplete(st)
 	if err != nil {
 		return nil, err
@@ -103,12 +108,14 @@ func (vs *Server) getLocalPayload(ctx context.Context, blk interfaces.ReadOnlyBe
 		return nil, err
 	}
 	if mergeComplete {
+		fmt.Println("ETHBFT: Creating Payload Header with Merge completed")
 		header, err := st.LatestExecutionPayloadHeader()
 		if err != nil {
 			return nil, err
 		}
 		parentHash = header.BlockHash()
 	} else {
+		fmt.Println("ETHBFT: Creating Payload Header with Merge NOT completed")
 		if activationEpochNotReached(slot) {
 			return consensusblocks.WrappedExecutionPayload(emptyPayload())
 		}
@@ -168,7 +175,7 @@ func (vs *Server) getLocalPayload(ctx context.Context, blk interfaces.ReadOnlyBe
 	default:
 		return nil, errors.New("unknown beacon state version")
 	}
-
+	fmt.Printf("ETHBFT: Calling ForkchoiceUpdated, line 171: %s\n", hex.EncodeToString(f.HeadBlockHash))
 	payloadID, _, err := vs.ExecutionEngineCaller.ForkchoiceUpdated(ctx, f, attr)
 	if err != nil {
 		return nil, errors.Wrap(err, "could not prepare payload")

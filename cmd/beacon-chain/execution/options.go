@@ -67,6 +67,10 @@ func parseJWTSecretFromFile(c *cli.Context) ([]byte, error) {
 	return secret, nil
 }
 
+func ParseJWTSecretFromFile(c *cli.Context) ([]byte, error) {
+	return parseJWTSecretFromFile(c)
+}
+
 func parseExecutionChainEndpoint(c *cli.Context) (string, error) {
 	if c.String(flags.ExecutionEngineEndpoint.Name) == "" {
 		return "", fmt.Errorf(

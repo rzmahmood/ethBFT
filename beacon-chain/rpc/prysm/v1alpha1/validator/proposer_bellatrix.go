@@ -47,6 +47,7 @@ func setExecutionData(ctx context.Context, blk interfaces.SignedBeaconBlock, loc
 
 	slot := blk.Block().Slot()
 	if slots.ToEpoch(slot) < params.BeaconConfig().BellatrixForkEpoch {
+		fmt.Println("ETHBFT: Setting no execution data")
 		return nil
 	}
 

@@ -46,6 +46,7 @@ func FromState(marshaled []byte) (*VersionedUnmarshaler, error) {
 	if err != nil {
 		return nil, err
 	}
+	fmt.Printf("ETHBFT: Using 4 bytes in FromState: %#x\n", cv)
 	return FromForkVersion(cv)
 }
 

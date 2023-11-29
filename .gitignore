@@ -29,6 +29,7 @@ password.txt
 
 # Dist files
 dist
+out
 
 # deepsource cli
 bin

@@ -8,12 +8,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/pkg/errors"
 	"github.com/prysmaticlabs/prysm/v4/async/event"
 	"github.com/prysmaticlabs/prysm/v4/beacon-chain/cache"
 	"github.com/prysmaticlabs/prysm/v4/beacon-chain/cache/depositcache"
 	"github.com/prysmaticlabs/prysm/v4/beacon-chain/db"
-	"github.com/prysmaticlabs/prysm/v4/beacon-chain/db/kv"
 	"github.com/prysmaticlabs/prysm/v4/beacon-chain/execution"
 	"github.com/prysmaticlabs/prysm/v4/beacon-chain/forkchoice"
 	"github.com/prysmaticlabs/prysm/v4/beacon-chain/operations/attestations"
@@ -27,8 +27,6 @@ import (
 	"github.com/prysmaticlabs/prysm/v4/beacon-chain/sync/checkpoint"
 	"github.com/prysmaticlabs/prysm/v4/beacon-chain/sync/genesis"
 	execution2 "github.com/prysmaticlabs/prysm/v4/cmd/beacon-chain/execution"
-	"github.com/prysmaticlabs/prysm/v4/cmd/beacon-chain/flags"
-	"github.com/prysmaticlabs/prysm/v4/config/params"
 	"github.com/prysmaticlabs/prysm/v4/consensus-types/blocks"
 	payloadattribute "github.com/prysmaticlabs/prysm/v4/consensus-types/payload-attribute"
 	"github.com/prysmaticlabs/prysm/v4/encoding/bytesutil"
@@ -42,9 +40,8 @@ import (
 	"github.com/urfave/cli/v2"
 	"math/big"
 	"sync"
+	time2 "time"
 )
-
-
 
 type BFTNode struct {
 	cliCtx                  *cli.Context
@@ -80,74 +77,10 @@ type BFTNode struct {
 
 // NewBFTNode creates a new node instance, sets up configuration options, and registers
 // every required service to the node.
-func  NewBFTNode(cliCtx *cli.Context, opts ...Option) (*BFTNode, error) {
-	log.Info("ETHBFT: Doing Nothing with New Node")
-	statePath := "network/node-0/consensus/beacondata/beaconchaindata"
-	if err := configureTracing(cliCtx); err != nil {
-		return nil, err
-	}
+func NewBFTNode(cliCtx *cli.Context, opts ...Option) (*BFTNode, error) {
 	ctx := cliCtx.Context
 
-
-	// Configure forks related configs
-	flags.ConfigureGlobalFlags(cliCtx)
-	if err := configureChainConfig(cliCtx); err != nil {
-		return nil, err
-	}
-
-	fmt.Println("ETHBFT: Running InitializeForkSchedule")
-	params.BeaconConfig().InitializeForkSchedule()
-	// End various configs
-
-	store, err := kv.NewKVStore(ctx, statePath)
-	if err != nil {
-		return nil, err
-	}
-	if err = store.RunMigrations(ctx); err != nil {
-		return nil, err
-	}
-	fmt.Println("ETHBFT: Running NewFileInitializer")
-	genesisInitializer, err := genesis.NewFileInitializer("network/node-0/consensus/genesis.ssz")
-	if err != nil {
-		return nil, errors.Wrap(err, "error preparing to initialize genesis db state from local ssz files")
-	}
-	fmt.Println("ETHBFT: Running Initialize")
-	err = genesisInitializer.Initialize(ctx, store)
-	if err != nil {
-		return nil, err
-	}
-	fmt.Println("ETHBFT: Running EnsureEmbeddedGenesis")
-	err = store.EnsureEmbeddedGenesis(ctx)
-	if err != nil {
-		return nil, err
-	}
-	fmt.Println("ETHBFT: Running GenesisBlock")
-	genesisBlock, err := store.GenesisBlock(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var r [32]byte
-	if genesisBlock != nil && !genesisBlock.IsNil() {
-		r, err = genesisBlock.Block().HashTreeRoot()
-		if err != nil {
-			return nil, err
-		}
-	}
-	var bs state.BeaconState
-	fmt.Println("ETHBFT: Running HasState")
-	if store.HasState(ctx, r) {
-		bs, err = store.State(ctx, r)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		return nil, fmt.Errorf("failed to load state")
-	}
-
-	fmt.Println("Successfully loaded beacon state ", bs.Version())
-
-
-	// Proposing Block to Execution Engine
+	//// Proposing Block to Execution Engine
 	jwtSecret, err := execution2.ParseJWTSecretFromFile(cliCtx)
 	if err != nil {
 		return nil, errors.Wrap(err, "could not read JWT secret file for authenticating execution API")
@@ -157,21 +90,27 @@ func  NewBFTNode(cliCtx *cli.Context, opts ...Option) (*BFTNode, error) {
 	hEndpoint := network.HttpEndpoint(endpoint)
 	hEndpoint.Auth.Method = authorization.Bearer
 	hEndpoint.Auth.Value = string(jwtSecret)
-
+	//
 	client, err := network.NewExecutionRPCClient(ctx, hEndpoint)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("ETHBFT: Getting latest execution payload header")
-	header, err := bs.LatestExecutionPayloadHeader()
+
+	execClient, err := ethclient.DialContext(ctx, "http://localhost:8000")
 	if err != nil {
 		return nil, err
 	}
 
-	blockHash := header.BlockHash()
+	latestBlock, err := execClient.BlockByNumber(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	//blockHash := header.BlockHash()
 	timeStamp := uint64(time.Now().Unix())
 	startTime := time.Now()
-	numBlocks := 10000
+	numBlocks := 100
+	blockHash := latestBlock.Hash().Bytes()
 
 	for i := 0; i < numBlocks; i++ {
 		fmt.Printf("ETHBFT: Latest blockhash is %s\n", hex.EncodeToString(blockHash))
@@ -186,10 +125,10 @@ func  NewBFTNode(cliCtx *cli.Context, opts ...Option) (*BFTNode, error) {
 		fmt.Println("ETHBFT: Using timestamp: ", timeStamp)
 		attr, err := payloadattribute.New(&enginev1.PayloadAttributesV2{
 			// unsafe cast
-			Timestamp: timeStamp,
+			Timestamp:             timeStamp,
 			PrevRandao:            randao.Bytes(),
 			SuggestedFeeRecipient: feeRecipient.Bytes(),
-			Withdrawals: withdrawals,
+			Withdrawals:           withdrawals,
 		})
 		a, err := attr.PbV2()
 		if err != nil {
@@ -221,6 +160,9 @@ func  NewBFTNode(cliCtx *cli.Context, opts ...Option) (*BFTNode, error) {
 		if !ok {
 			return nil, errors.New("execution data must be a Capella execution payload")
 		}
+
+		// DO
+
 		newPayloadResult := &pb.PayloadStatus{}
 		err = client.CallContext(ctx, newPayloadResult, "engine_newPayloadV2", payloadPb)
 		if err != nil {
@@ -229,6 +171,8 @@ func  NewBFTNode(cliCtx *cli.Context, opts ...Option) (*BFTNode, error) {
 		fmt.Printf("ETHBFT: [Block Number: %d] Called engine_newPayloadV2: %s\n", payloadPb.BlockNumber, newPayloadResult.String())
 		blockHash = payloadPb.BlockHash
 		timeStamp++
+		fmt.Println("Sleeping for 2 seconds.")
+		time2.Sleep(2 * time2.Second)
 	}
 	timeTaken := time.Since(startTime)
 	fmt.Printf("%d blocks took %s\n", numBlocks, timeTaken.String())

@@ -34,7 +34,7 @@ func FlagOptions(c *cli.Context) ([]execution.Option, error) {
 	return opts, nil
 }
 
-// Parses a JWT secret from a file path. This secret is required when connecting to execution nodes
+// ParseJWTSecretFromFile Parses a JWT secret from a file path. This secret is required when connecting to execution nodes
 // over HTTP, and must be the same one used in Prysm and the execution node server Prysm is connecting to.
 // The engine API specification here https://github.com/ethereum/execution-apis/blob/main/src/engine/authentication.md
 // Explains how we should validate this secret and the format of the file a user can specify.
@@ -42,6 +42,30 @@ func FlagOptions(c *cli.Context) ([]execution.Option, error) {
 // The secret must be stored as a hex-encoded string within a file in the filesystem.
 // If the --jwt-secret flag is provided to Prysm, but the file cannot be read, or does not contain a hex-encoded
 // key of at least 256 bits, the client should treat this as an error and abort the startup.
+func ParseJWTSecretFromFile(c *cli.Context) ([]byte, error) {
+	jwtSecretFile := c.String(flags.ExecutionJWTSecretFlag.Name)
+	if jwtSecretFile == "" {
+		return nil, nil
+	}
+	enc, err := file.ReadFileAsBytes(jwtSecretFile)
+	if err != nil {
+		return nil, err
+	}
+	strData := strings.TrimSpace(string(enc))
+	if strData == "" {
+		return nil, fmt.Errorf("provided JWT secret in file %s cannot be empty", jwtSecretFile)
+	}
+	secret, err := hex.DecodeString(strings.TrimPrefix(strData, "0x"))
+	if err != nil {
+		return nil, err
+	}
+	if len(secret) < 32 {
+		return nil, errors.New("provided JWT secret should be a hex string of at least 32 bytes")
+	}
+	log.Infof("Finished reading JWT secret from %s", jwtSecretFile)
+	return secret, nil
+}
+
 func parseJWTSecretFromFile(c *cli.Context) ([]byte, error) {
 	jwtSecretFile := c.String(flags.ExecutionJWTSecretFlag.Name)
 	if jwtSecretFile == "" {

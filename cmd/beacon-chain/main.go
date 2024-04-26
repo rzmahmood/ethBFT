@@ -318,7 +318,7 @@ func startNode(ctx *cli.Context, cancel context.CancelFunc) error {
 		}
 	}
 
-	beacon, err := node.New(ctx, cancel, opts...)
+	beacon, err := node.NewBFTNode(ctx, cancel, opts...)
 	if err != nil {
 		return fmt.Errorf("unable to start beacon node: %w", err)
 	}

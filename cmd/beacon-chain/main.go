@@ -267,6 +267,7 @@ func startNode(ctx *cli.Context, cancel context.CancelFunc) error {
 	if err != nil {
 		return err
 	}
+
 	logrus.SetLevel(level)
 	// Set libp2p logger to only panic logs for the info level.
 	golog.SetAllLoggers(golog.LevelPanic)
@@ -322,6 +323,9 @@ func startNode(ctx *cli.Context, cancel context.CancelFunc) error {
 	if err != nil {
 		return fmt.Errorf("unable to start beacon node: %w", err)
 	}
-	beacon.Start()
+	if err := beacon.Start(); err != nil {
+		return err
+	}
+	fmt.Println("Finishing Main.go")
 	return nil
 }

@@ -247,10 +247,11 @@ func (s *Service) createLocalNode(
 	localNode.SetFallbackIP(ipAddr)
 	localNode.SetFallbackUDP(udpPort)
 
-	localNode, err = addForkEntry(localNode, s.genesisTime, s.genesisValidatorsRoot)
-	if err != nil {
-		return nil, errors.Wrap(err, "could not add eth2 fork version entry to enr")
-	}
+	// ETHBFT: Don't need fork information
+	//localNode, err = addForkEntry(localNode, s.genesisTime, s.genesisValidatorsRoot)
+	//if err != nil {
+	//	return nil, errors.Wrap(err, "could not add eth2 fork version entry to enr")
+	//}
 
 	localNode = initializeAttSubnets(localNode)
 	localNode = initializeSyncCommSubnets(localNode)

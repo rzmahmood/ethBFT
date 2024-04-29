@@ -83,15 +83,19 @@ func NewBFTNode(cliCtx *cli.Context, cancel context.CancelFunc, opts ...Option) 
 	if err != nil {
 		return nil, errors.Wrap(err, "could not read JWT secret file for authenticating execution API")
 	}
-	endpoint := "http://localhost:8200"
+	authExecutionEndpoint, err := executionCli.ParseExecutionChainEndpoint(cliCtx)
+	if err != nil {
+		return nil, err
+	}
 	fmt.Println("ETHBFT: NewExecutionRPCClient")
-	hEndpoint := network.HttpEndpoint(endpoint)
+	hEndpoint := network.HttpEndpoint(authExecutionEndpoint)
 	hEndpoint.Auth.Method = authorization.Bearer
 	hEndpoint.Auth.Value = string(jwtSecret)
 	engineAPIClient, err := network.NewExecutionRPCClient(ctx, hEndpoint, nil)
 	if err != nil {
 		return nil, err
 	}
+	
 	execClient, err := ethclient.DialContext(ctx, "http://localhost:8000")
 	if err != nil {
 		return nil, err

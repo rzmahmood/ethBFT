@@ -77,7 +77,7 @@ func (b *BFTNode) rpcLoop(ctx context.Context) error {
 	blockTicker := time.NewTicker(2 * time.Second)
 	defer blockTicker.Stop()
 	for _ = range blockTicker.C {
-		fmt.Println("RPC Loop Peers: ", b.p2p.Host.Peerstore().Peers())
+		fmt.Println("RPC Loop Peers: ", len(b.p2p.Host.Peerstore().Peers()))
 	}
 	return nil
 }

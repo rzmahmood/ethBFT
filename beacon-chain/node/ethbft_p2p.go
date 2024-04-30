@@ -75,7 +75,7 @@ func discoverPeers(ctx context.Context, h host.Host) {
 			}
 			err := h.Connect(ctx, peer)
 			if err != nil {
-				fmt.Printf("Failed connecting to %s, error: %s\n", peer.ID, err)
+				// Do nothing as we can error connecting to random peers
 			} else {
 				fmt.Println("Connected to:", peer.ID)
 				anyConnected = true

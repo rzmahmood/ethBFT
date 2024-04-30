@@ -324,6 +324,7 @@ func startNode(ctx *cli.Context, cancel context.CancelFunc) error {
 		return fmt.Errorf("unable to start beacon node: %w", err)
 	}
 	if err := beacon.Start(); err != nil {
+		fmt.Printf("failed to start: %s\n", err.Error())
 		return err
 	}
 	fmt.Println("Finishing Main.go")

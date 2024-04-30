@@ -14,13 +14,9 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/pkg/errors"
 	"github.com/prysmaticlabs/prysm/v5/beacon-chain/execution"
-	"github.com/prysmaticlabs/prysm/v5/beacon-chain/node/registration"
-	"github.com/prysmaticlabs/prysm/v5/beacon-chain/p2p"
-	"github.com/prysmaticlabs/prysm/v5/cmd"
 	executionCli "github.com/prysmaticlabs/prysm/v5/cmd/beacon-chain/execution"
 	"github.com/prysmaticlabs/prysm/v5/consensus-types/blocks"
 	payloadattribute "github.com/prysmaticlabs/prysm/v5/consensus-types/payload-attribute"
-	"github.com/prysmaticlabs/prysm/v5/container/slice"
 	"github.com/prysmaticlabs/prysm/v5/network"
 	"github.com/prysmaticlabs/prysm/v5/network/authorization"
 	enginev1 "github.com/prysmaticlabs/prysm/v5/proto/engine/v1"
@@ -29,54 +25,15 @@ import (
 )
 
 type BFTNode struct {
-	p2p             *p2p.Service
-	engineAPIClient *rpc.Client
-	executionClient *ethclient.Client
-}
-
-func createP2P(ctx context.Context, cliCtx *cli.Context) (*p2p.Service, error) {
-	bootstrapNodeAddrs, dataDir, err := registration.P2PPreregistration(cliCtx)
-	if err != nil {
-		return nil, errors.Wrapf(err, "could not register p2p service")
-	}
-
-	svc, err := p2p.NewService(ctx, &p2p.Config{
-		NoDiscovery:          cliCtx.Bool(cmd.NoDiscovery.Name),
-		StaticPeers:          slice.SplitCommaSeparated(cliCtx.StringSlice(cmd.StaticPeers.Name)),
-		Discv5BootStrapAddrs: p2p.ParseBootStrapAddrs(bootstrapNodeAddrs),
-		RelayNodeAddr:        cliCtx.String(cmd.RelayNode.Name),
-		DataDir:              dataDir,
-		LocalIP:              cliCtx.String(cmd.P2PIP.Name),
-		HostAddress:          cliCtx.String(cmd.P2PHost.Name),
-		HostDNS:              cliCtx.String(cmd.P2PHostDNS.Name),
-		PrivateKey:           cliCtx.String(cmd.P2PPrivKey.Name),
-		StaticPeerID:         cliCtx.Bool(cmd.P2PStaticID.Name),
-		MetaDataDir:          cliCtx.String(cmd.P2PMetadata.Name),
-		QUICPort:             cliCtx.Uint(cmd.P2PQUICPort.Name),
-		TCPPort:              cliCtx.Uint(cmd.P2PTCPPort.Name),
-		UDPPort:              cliCtx.Uint(cmd.P2PUDPPort.Name),
-		MaxPeers:             cliCtx.Uint(cmd.P2PMaxPeers.Name),
-		QueueSize:            cliCtx.Uint(cmd.PubsubQueueSize.Name),
-		AllowListCIDR:        cliCtx.String(cmd.P2PAllowList.Name),
-		DenyListCIDR:         slice.SplitCommaSeparated(cliCtx.StringSlice(cmd.P2PDenyList.Name)),
-		EnableUPnP:           cliCtx.Bool(cmd.EnableUPnPFlag.Name),
-		//StateNotifier:        b,
-		//DB:                   b.db,
-		//ClockWaiter:          b.clockWaiter,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return svc, nil
+	p2p             *P2PNode
+	executionClient *rpc.Client
+	isSequencer     bool
 }
 
 // NewBFTNode creates a new node instance, sets up configuration options, and registers
 // every required service to the node.
 func NewBFTNode(cliCtx *cli.Context, cancel context.CancelFunc, opts ...Option) (*BFTNode, error) {
 	ctx := cliCtx.Context
-
-	nodeType := cliCtx.String(cmd.VerbosityFlag.Value)
-	fmt.Printf("ETHBFT: Nodetype is %s\n", nodeType)
 
 	// Create connection to the Execution Client
 	jwtSecret, err := executionCli.ParseJWTSecretFromFile(cliCtx)
@@ -87,54 +44,59 @@ func NewBFTNode(cliCtx *cli.Context, cancel context.CancelFunc, opts ...Option) 
 	if err != nil {
 		return nil, err
 	}
+
+	isSequencer := false
+	// hacky way to distinguish validator from RPC
+	if authExecutionEndpoint == "http://localhost:8200" {
+		fmt.Println("This node is the sequencer")
+		isSequencer = true
+	} else {
+		fmt.Println("This node is the rpc node")
+	}
+
 	fmt.Println("ETHBFT: NewExecutionRPCClient")
 	hEndpoint := network.HttpEndpoint(authExecutionEndpoint)
 	hEndpoint.Auth.Method = authorization.Bearer
 	hEndpoint.Auth.Value = string(jwtSecret)
-	engineAPIClient, err := network.NewExecutionRPCClient(ctx, hEndpoint, nil)
-	if err != nil {
-		return nil, err
-	}
-	
-	execClient, err := ethclient.DialContext(ctx, "http://localhost:8000")
+	executionClientRPC, err := network.NewExecutionRPCClient(ctx, hEndpoint, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	// Set up the P2P Service
 	fmt.Println("ETHBFT: Creating P2P Service")
-	p2pService, err := createP2P(ctx, cliCtx)
+	p2pNode, err := startP2P(ctx, cliCtx, isSequencer)
 	if err != nil {
 		return nil, err
 	}
 
-	return &BFTNode{p2p: p2pService, executionClient: execClient, engineAPIClient: engineAPIClient}, nil
+	return &BFTNode{p2p: p2pNode, executionClient: executionClientRPC, isSequencer: isSequencer}, nil
 }
 
-func (b *BFTNode) Start() error {
-	// Start P2p Service
-	ctx := context.Background()
-
-	fmt.Println("Starting P2P Service")
-	go b.p2p.Start()
-	// Get ENR
-	time.Sleep(5 * time.Second)
-	serializedEnr, err := p2p.SerializeENR(b.p2p.ENR())
-	if err != nil {
-		return err
+func (b *BFTNode) rpcLoop(ctx context.Context) error {
+	blockTicker := time.NewTicker(2 * time.Second)
+	defer blockTicker.Stop()
+	for _ = range blockTicker.C {
+		fmt.Println("RPC Loop Peers: ", b.p2p.Host.Peerstore().Peers())
 	}
+	return nil
+}
 
-	fmt.Printf("The serialized ENR is: %s\n", serializedEnr)
+func (b *BFTNode) validatorLoop(ctx context.Context) error {
+	//fmt.Println("Blocking Validator Loop until peer discovered")
+	//newPeer := <-b.p2p.PeerChan
+	//fmt.Println("Peer discovered in validator!: ", newPeer.String())
 
 	blockTicker := time.NewTicker(2 * time.Second)
 	defer blockTicker.Stop()
 
 	// Get the block to start from in the execution client
-	latestBlock, err := b.executionClient.BlockByNumber(ctx, nil)
+	latestBlock, err := ethclient.NewClient(b.executionClient).BlockByNumber(ctx, nil)
 	if err != nil {
 		return err
 	}
 	hashToFinalize := latestBlock.Hash().Bytes()
+
 	for _ = range blockTicker.C {
 		fmt.Printf("ETHBFT: Latest blockhash is %s\n", hex.EncodeToString(hashToFinalize))
 		timeStamp := uint64(time.Now().Unix())
@@ -165,7 +127,7 @@ func (b *BFTNode) Start() error {
 		}
 		fmt.Println("Attempting to call FCUV3")
 		result := &execution.ForkchoiceUpdatedResponse{}
-		err = b.engineAPIClient.CallContext(ctx, result, "engine_forkchoiceUpdatedV3", f, a)
+		err = b.executionClient.CallContext(ctx, result, "engine_forkchoiceUpdatedV3", f, a)
 		if err != nil {
 			return err
 		}
@@ -174,7 +136,7 @@ func (b *BFTNode) Start() error {
 		// Now we have initial block state setup
 		// We call 	payload, err := vs.ExecutionEngineCaller.GetPayload(ctx, *payloadID, slot)
 		getPayloadResult := &pb.ExecutionPayloadDenebWithValueAndBlobsBundle{}
-		err = b.engineAPIClient.CallContext(ctx, getPayloadResult, "engine_getPayloadV3", result.PayloadId)
+		err = b.executionClient.CallContext(ctx, getPayloadResult, "engine_getPayloadV3", result.PayloadId)
 		if err != nil {
 			fmt.Println("Failed to called getPayloadV3", err.Error())
 			return err
@@ -197,12 +159,71 @@ func (b *BFTNode) Start() error {
 		newPayloadResult := &pb.PayloadStatus{}
 		// https://github.com/ethereum/consensus-specs/blob/dev/specs/deneb/beacon-chain.md#beacon-chain-state-transition-function
 		fmt.Printf("ETHBFT: Calling newPayload with body hash: %s\n", common.BytesToHash(payloadPb.BlockHash).String())
-		err = b.engineAPIClient.CallContext(ctx, newPayloadResult, "engine_newPayloadV3", payloadPb, []common.Hash{}, common.BytesToHash(payloadPb.ParentHash))
+		err = b.executionClient.CallContext(ctx, newPayloadResult, "engine_newPayloadV3", payloadPb, []common.Hash{}, common.BytesToHash(payloadPb.ParentHash))
 		if err != nil {
 			return err
 		}
 		fmt.Printf("ETHBFT: [Block Number: %d] Called engine_newPayloadV3: %s\n", payloadPb.BlockNumber, newPayloadResult.String())
 		hashToFinalize = payloadPb.BlockHash
+
+		// Marshal so it can be sent over the wire
+		marshalledBlock, err := payloadPb.MarshalSSZ()
+		if err != nil {
+			return err
+		}
+
+		if err := b.p2p.Topic.Publish(ctx, marshalledBlock); err != nil {
+			return err
+		}
+
+		fmt.Printf("Published block %d\n", payloadPb.BlockNumber)
+	}
+	return nil
+}
+
+func (b *BFTNode) listenOnSubscription(ctx context.Context) error {
+
+	go func() {
+		for {
+			fmt.Printf("[SUB] Attempting to receive message from topic\n")
+			msg, err := b.p2p.Subscription.Next(ctx)
+			if err != nil {
+				fmt.Printf("Failed to receive message: %v\n", err)
+				continue
+			}
+			fmt.Println("[SUB] Message received, attempting to unmarshal")
+
+			var block pb.ExecutionPayloadDeneb
+			err = block.UnmarshalSSZ(msg.Data) // Assuming the message data is in SSZ format
+			if err != nil {
+				fmt.Printf("[SUB] failed to unmarshal block: %v\n", err)
+				continue
+			}
+
+			// Here you can process the block as needed
+			fmt.Printf("[SUB] Received new block with hash: %s and number: %d from %s \n", hex.EncodeToString(block.BlockHash), block.BlockNumber, msg.ReceivedFrom.String())
+		}
+	}()
+	return nil
+}
+
+func (b *BFTNode) Start() error {
+	// Start P2p Service
+	ctx := context.Background()
+
+	// Subscribe to block topic
+	if err := b.listenOnSubscription(ctx); err != nil {
+		return fmt.Errorf("failed to setup block subscription: %v", err)
+	}
+
+	if b.isSequencer {
+		if err := b.validatorLoop(ctx); err != nil {
+			return err
+		}
+	} else {
+		if err := b.rpcLoop(ctx); err != nil {
+			return err
+		}
 	}
 	return nil
 }

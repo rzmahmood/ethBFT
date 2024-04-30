@@ -227,7 +227,7 @@ func (s *Service) Start() {
 	// Initialize metadata according to the
 	// current epoch.
 	s.RefreshENR()
-	
+
 	// Periodic functions.
 	async.RunEvery(s.ctx, params.BeaconConfig().TtfbTimeoutDuration(), func() {
 		ensurePeerConnections(s.ctx, s.host, s.peers, relayNodes...)

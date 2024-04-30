@@ -6,7 +6,6 @@ package p2p
 import (
 	"context"
 	"crypto/ecdsa"
-	"fmt"
 	"sync"
 	"time"
 
@@ -178,11 +177,9 @@ func (s *Service) Start() {
 		log.Error("Attempted to start p2p service when it was already started")
 		return
 	}
-
 	// Waits until the state is initialized via an event feed.
 	// Used for fork-related data when connecting peers.
-	// ETHBFT: Removed as we don't have event feed
-	//s.awaitStateInitialized()
+	s.awaitStateInitialized()
 	s.isPreGenesis = false
 
 	var relayNodes []string
@@ -229,13 +226,12 @@ func (s *Service) Start() {
 	// Initialize metadata according to the
 	// current epoch.
 	s.RefreshENR()
-	fmt.Println("ETHBFT: Running Periodic Functions")
 	// Periodic functions.
 	async.RunEvery(s.ctx, params.BeaconConfig().TtfbTimeoutDuration(), func() {
 		ensurePeerConnections(s.ctx, s.host, s.peers, relayNodes...)
 	})
-	//async.RunEvery(s.ctx, 30*time.Minute, s.Peers().Prune)
-	//async.RunEvery(s.ctx, time.Duration(params.BeaconConfig().RespTimeout)*time.Second, s.updateMetrics)
+	async.RunEvery(s.ctx, 30*time.Minute, s.Peers().Prune)
+	async.RunEvery(s.ctx, time.Duration(params.BeaconConfig().RespTimeout)*time.Second, s.updateMetrics)
 	async.RunEvery(s.ctx, refreshRate, s.RefreshENR)
 	async.RunEvery(s.ctx, 1*time.Minute, func() {
 		inboundQUICCount := len(s.peers.InboundConnectedWithProtocol(peers.QUIC))
@@ -274,7 +270,7 @@ func (s *Service) Start() {
 	if p2pHostDNS != "" {
 		logExternalDNSAddr(s.host.ID(), p2pHostDNS, p2pTCPPort)
 	}
-	//go s.forkWatcher()
+	go s.forkWatcher()
 }
 
 // Stop the p2p service and terminate all peer connections.

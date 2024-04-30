@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/pkg/errors"
 	"github.com/prysmaticlabs/prysm/v5/beacon-chain/execution"
 	executionCli "github.com/prysmaticlabs/prysm/v5/cmd/beacon-chain/execution"
@@ -28,6 +29,7 @@ type BFTNode struct {
 	p2p             *P2PNode
 	executionClient *rpc.Client
 	isSequencer     bool
+	blocksToProcess chan pubsub.Message
 }
 
 // NewBFTNode creates a new node instance, sets up configuration options, and registers
@@ -69,15 +71,55 @@ func NewBFTNode(cliCtx *cli.Context, cancel context.CancelFunc, opts ...Option) 
 	if err != nil {
 		return nil, err
 	}
-
-	return &BFTNode{p2p: p2pNode, executionClient: executionClientRPC, isSequencer: isSequencer}, nil
+	incomingBlocksChan := make(chan pubsub.Message)
+	return &BFTNode{p2p: p2pNode, executionClient: executionClientRPC, isSequencer: isSequencer, blocksToProcess: incomingBlocksChan}, nil
 }
 
 func (b *BFTNode) rpcLoop(ctx context.Context) error {
-	blockTicker := time.NewTicker(2 * time.Second)
-	defer blockTicker.Stop()
-	for _ = range blockTicker.C {
+	for msg := range b.blocksToProcess {
 		fmt.Println("RPC Loop Peers: ", len(b.p2p.Host.Peerstore().Peers()))
+
+		var block pb.ExecutionPayloadDeneb
+		err := block.UnmarshalSSZ(msg.Data) // Assuming the message data is in SSZ format
+		if err != nil {
+			fmt.Printf("[SUB] failed to unmarshal block: %v\n", err)
+			continue
+		}
+
+		fmt.Printf("[SUB] Received new block with hash: %s and number: %d from %s \n",
+			hex.EncodeToString(block.BlockHash), block.BlockNumber, msg.ReceivedFrom.String())
+
+		newPayloadResult := &pb.PayloadStatus{}
+		// https://github.com/ethereum/consensus-specs/blob/dev/specs/deneb/beacon-chain.md#beacon-chain-state-transition-function
+		fmt.Printf("ETHBFT: Calling newPayload with body hash: %s\n", common.BytesToHash(block.BlockHash).String())
+		err = b.executionClient.CallContext(ctx, newPayloadResult, "engine_newPayloadV3", &block, []common.Hash{}, common.BytesToHash(block.ParentHash))
+		if err != nil {
+			return err
+		}
+		fmt.Printf("ETHBFT: [Block Number: %d] Called engine_newPayloadV3: %s\n", block.BlockNumber, newPayloadResult.String())
+
+		hashToFinalize := block.BlockHash
+		f := &enginev1.ForkchoiceState{
+			HeadBlockHash:      hashToFinalize,
+			SafeBlockHash:      hashToFinalize,
+			FinalizedBlockHash: hashToFinalize,
+		}
+
+		result := &execution.ForkchoiceUpdatedResponse{}
+		// Payload attributed can be nil as we don't care to create a new block as the RPC. If non-nil, the RPC will
+		// attempt to prepare a block in Geth
+		err = b.executionClient.CallContext(ctx, result, "engine_forkchoiceUpdatedV3", f, nil)
+		if err != nil {
+			return err // Return error if call fails
+		}
+
+		fmt.Printf("ETHBFT: [Block Number: %d] Executed fork choice update, with status %s\n", block.BlockNumber, result.Status.String())
+
+		// Check the result and break the loop if not syncing, otherwise, retry after a delay
+		if result.Status.String() != "status:SYNCING" {
+			// Optional: Delay if syncing
+			time.Sleep(2 * time.Second)
+		}
 	}
 	return nil
 }
@@ -191,17 +233,9 @@ func (b *BFTNode) listenOnSubscription(ctx context.Context) error {
 				fmt.Printf("Failed to receive message: %v\n", err)
 				continue
 			}
-			fmt.Println("[SUB] Message received, attempting to unmarshal")
 
-			var block pb.ExecutionPayloadDeneb
-			err = block.UnmarshalSSZ(msg.Data) // Assuming the message data is in SSZ format
-			if err != nil {
-				fmt.Printf("[SUB] failed to unmarshal block: %v\n", err)
-				continue
-			}
-
-			// Here you can process the block as needed
-			fmt.Printf("[SUB] Received new block with hash: %s and number: %d from %s \n", hex.EncodeToString(block.BlockHash), block.BlockNumber, msg.ReceivedFrom.String())
+			fmt.Println("[SUB] Message received")
+			b.blocksToProcess <- *msg
 		}
 	}()
 	return nil
